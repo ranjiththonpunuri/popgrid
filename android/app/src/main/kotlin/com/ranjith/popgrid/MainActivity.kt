@@ -1,4 +1,4 @@
-package com.example.popgrid
+package com.ranjith.popgrid
 
 import io.flutter.embedding.android.FlutterActivity
 
