@@ -224,9 +224,9 @@ void main() {
       );
     });
 
-    group('Flip Mechanic', () {
+    group('No-Flip Mechanic', () {
       blocTest<GameBloc, GameBlocState>(
-        'adjacent opponent cells flip on sequence completion',
+        'adjacent opponent cells do NOT flip on sequence completion',
         build: _buildBloc,
         act: (bloc) {
           bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
@@ -239,56 +239,26 @@ void main() {
           // P2: O at (9,9) — elsewhere
           bloc.add(const PlaceCell(position: CellPosition(row: 9, col: 9)));
           // P1: X at (0,0) — completes vertical XXX at col 0, rows 0-2
-          // O at (2,1) is adjacent to (2,0) which is in the sequence → flips to X/P1
           bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
         },
         verify: (bloc) {
           final state = bloc.state as GameInProgress;
           final gs = state.gameState;
-          // O at (2,1) should now be X owned by P1
+          // O at (2,1) should remain O — no flipping
           expect(gs.board.getCell(const CellPosition(row: 2, col: 1)).value,
-              CellValue.X);
+              CellValue.O);
           expect(
-              gs.board.getCell(const CellPosition(row: 2, col: 1)).placedBy, 1);
-          expect(gs.moveHistory.last.flippedCells,
-              contains(const CellPosition(row: 2, col: 1)));
-        },
-      );
-
-      blocTest<GameBloc, GameBlocState>(
-        'non-adjacent opponent cells do NOT flip',
-        build: _buildBloc,
-        act: (bloc) {
-          bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
-          // P1: X at (0,0)
-          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
-          // P2: O at (5,5) — far away
-          bloc.add(const PlaceCell(position: CellPosition(row: 5, col: 5)));
-          // P1: X at (0,1)
-          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 1)));
-          // P2: O at (5,6) — far away
-          bloc.add(const PlaceCell(position: CellPosition(row: 5, col: 6)));
-          // P1: X at (0,2) — completes XXX, but no adjacent Os
-          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 2)));
-        },
-        verify: (bloc) {
-          final state = bloc.state as GameInProgress;
-          final gs = state.gameState;
-          // O at (5,5) and (5,6) should remain untouched
-          expect(gs.board.getCell(const CellPosition(row: 5, col: 5)).value,
-              CellValue.O);
-          expect(gs.board.getCell(const CellPosition(row: 5, col: 6)).value,
-              CellValue.O);
+              gs.board.getCell(const CellPosition(row: 2, col: 1)).placedBy, 2);
           expect(gs.moveHistory.last.flippedCells, isEmpty);
         },
       );
 
       blocTest<GameBloc, GameBlocState>(
-        'player 2 can trigger flips',
+        'opponent cells remain unchanged after player 2 scores',
         build: _buildBloc,
         act: (bloc) {
           bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
-          // P1: X at (2,1) — will be adjacent to P2's sequence
+          // P1: X at (2,1) — adjacent to P2's upcoming sequence
           bloc.add(const PlaceCell(position: CellPosition(row: 2, col: 1)));
           // P2: O at (0,0)
           bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
@@ -299,26 +269,25 @@ void main() {
           // P1: X at (9,8) — elsewhere
           bloc.add(const PlaceCell(position: CellPosition(row: 9, col: 8)));
           // P2: O at (2,0) — completes vertical OOO at col 0
-          // X at (2,1) is adjacent to (2,0) → flips to O/P2
           bloc.add(const PlaceCell(position: CellPosition(row: 2, col: 0)));
         },
         verify: (bloc) {
           final state = bloc.state as GameInProgress;
           final gs = state.gameState;
+          // X at (2,1) should remain X — no flipping
           expect(gs.board.getCell(const CellPosition(row: 2, col: 1)).value,
-              CellValue.O);
+              CellValue.X);
           expect(
-              gs.board.getCell(const CellPosition(row: 2, col: 1)).placedBy, 2);
+              gs.board.getCell(const CellPosition(row: 2, col: 1)).placedBy, 1);
           expect(gs.player2Score, 1);
         },
       );
 
       blocTest<GameBloc, GameBlocState>(
-        'multiple adjacent opponents all flip',
+        'multiple adjacent opponents remain unchanged after scoring',
         build: _buildBloc,
         act: (bloc) {
           bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
-          // Set up P2 Os adjacent to P1's upcoming sequence
           // P1: X at (3,0)
           bloc.add(const PlaceCell(position: CellPosition(row: 3, col: 0)));
           // P2: O at (3,1) — adjacent to (3,0)
@@ -328,17 +297,17 @@ void main() {
           // P2: O at (2,1) — adjacent to (2,0)
           bloc.add(const PlaceCell(position: CellPosition(row: 2, col: 1)));
           // P1: X at (1,0) — completes vertical XXX at col 0, rows 1-3
-          // Both Os at (3,1) and (2,1) are adjacent → both flip
           bloc.add(const PlaceCell(position: CellPosition(row: 1, col: 0)));
         },
         verify: (bloc) {
           final state = bloc.state as GameInProgress;
           final gs = state.gameState;
+          // Both Os remain O — no flipping
           expect(gs.board.getCell(const CellPosition(row: 3, col: 1)).value,
-              CellValue.X);
+              CellValue.O);
           expect(gs.board.getCell(const CellPosition(row: 2, col: 1)).value,
-              CellValue.X);
-          expect(gs.moveHistory.last.flippedCells.length, 2);
+              CellValue.O);
+          expect(gs.moveHistory.last.flippedCells, isEmpty);
         },
       );
     });

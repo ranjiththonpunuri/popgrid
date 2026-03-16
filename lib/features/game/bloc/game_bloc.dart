@@ -85,9 +85,8 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
     // 2. Detect sequences (3+ same letter through placed cell)
     final sequences = _detector.detectSequences(newBoard, position);
 
-    // 3. Calculate points and find adjacent opponent cells to flip
+    // 3. Calculate points from sequences (no adjacent cell flipping)
     int points = 0;
-    final flippedPositions = <CellPosition>[];
 
     if (sequences.isNotEmpty) {
       // Calculate total points
@@ -101,17 +100,8 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
         sequenceCells.addAll(seq.cells);
       }
 
-      // Strike out scored sequence cells (makes them immune to future flips)
+      // Strike out scored sequence cells (marks them as part of a scored sequence)
       newBoard = newBoard.strikeOutCells(sequenceCells);
-
-      // Find adjacent opponent cells and flip them (skips struck-out opponents)
-      final adjacentOpponents =
-          newBoard.getAdjacentOpponentCells(sequenceCells, playerId);
-      flippedPositions.addAll(adjacentOpponents);
-
-      if (flippedPositions.isNotEmpty) {
-        newBoard = newBoard.flipCells(flippedPositions, cellValue, playerId);
-      }
     }
 
     // 4. Update player score
@@ -132,7 +122,7 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
       playerId: playerId,
       sequencesScored: sequences,
       pointsScored: points,
-      flippedCells: flippedPositions,
+      flippedCells: const [],
     );
 
     // 6. Switch turns and check game over
