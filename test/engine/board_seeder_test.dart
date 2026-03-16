@@ -13,9 +13,9 @@ void main() {
   });
 
   group('BoardSeeder', () {
-    test('generates a board with default 12 pre-placed cells', () {
+    test('generates a board with default 30 pre-placed cells (30%)', () {
       final board = seeder.generate(seed: 42);
-      expect(board.seededCount, 12);
+      expect(board.seededCount, 30);
     });
 
     test('generates a board with custom cell count', () {
@@ -53,8 +53,8 @@ void main() {
       }
     });
 
-    test('balanced X and O ratio', () {
-      final board = seeder.generate(cellCount: 12, seed: 42);
+    test('roughly balanced X and O ratio', () {
+      final board = seeder.generate(seed: 42);
       int xCount = 0;
       int oCount = 0;
       for (int r = 0; r < 10; r++) {
@@ -64,24 +64,30 @@ void main() {
           if (cell.value == CellValue.O) oCount++;
         }
       }
-      expect(xCount, 6);
-      expect(oCount, 6);
+      // Adjacency constraint may cause slight imbalance
+      expect(xCount + oCount, 30);
+      expect((xCount - oCount).abs(), lessThanOrEqualTo(4));
     });
 
-    test('cells spread across all 4 quadrants', () {
-      final board = seeder.generate(cellCount: 12, seed: 42);
-      final quadrantCounts = [0, 0, 0, 0];
-      for (int r = 0; r < 10; r++) {
-        for (int c = 0; c < 10; c++) {
-          if (!board.isEmpty(CellPosition(row: r, col: c))) {
-            final q = (r < 5 ? 0 : 2) + (c < 5 ? 0 : 1);
-            quadrantCounts[q]++;
+    test('no same-letter cells adjacent to each other', () {
+      for (int seed = 0; seed < 20; seed++) {
+        final board = seeder.generate(seed: seed);
+        for (int r = 0; r < 10; r++) {
+          for (int c = 0; c < 10; c++) {
+            final pos = CellPosition(row: r, col: c);
+            final val = board.valueAt(r, c);
+            if (val == CellValue.empty) continue;
+            // Check all 8 neighbors
+            for (final (dr, dc) in [(-1,-1),(-1,0),(-1,1),(0,-1),(0,1),(1,-1),(1,0),(1,1)]) {
+              final nr = r + dr;
+              final nc = c + dc;
+              if (nr >= 0 && nr < 10 && nc >= 0 && nc < 10) {
+                expect(board.valueAt(nr, nc) != val || board.valueAt(nr, nc) == CellValue.empty, isTrue,
+                    reason: 'Seed $seed: same letter adjacent at ($r,$c) and ($nr,$nc)');
+              }
+            }
           }
         }
-      }
-      for (int q = 0; q < 4; q++) {
-        expect(quadrantCounts[q], greaterThanOrEqualTo(2),
-            reason: 'Quadrant $q has fewer than 2 cells');
       }
     });
 

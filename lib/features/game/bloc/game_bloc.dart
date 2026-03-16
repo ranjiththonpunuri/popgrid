@@ -82,17 +82,17 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
     // 1. Place cell on board
     var newBoard = gs.board.placeCell(position, cellValue, playerId);
 
-    // 2. Detect sequences (3+ same letter through placed cell)
+    // 2. Detect exact 3-cell sequences through placed cell
     final sequences = _detector.detectSequences(newBoard, position);
 
-    // 3. Calculate points from sequences (no adjacent cell flipping)
+    // 3. Calculate points with multi-direction bonus
+    //    Count unique directions: n directions = n*(n+1)/2 points
     int points = 0;
 
     if (sequences.isNotEmpty) {
-      // Calculate total points
-      for (final seq in sequences) {
-        points += seq.score;
-      }
+      final directions = sequences.map((s) => s.direction).toSet();
+      final n = directions.length;
+      points = n * (n + 1) ~/ 2;
 
       // Collect all sequence cell positions
       final sequenceCells = <CellPosition>{};
@@ -167,29 +167,23 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
       newBoard = newBoard.placeCell(move.position, move.cellValue, move.playerId);
       final sequences = _detector.detectSequences(newBoard, move.position);
 
-      int points = 0;
-      for (final seq in sequences) {
-        points += seq.score;
-      }
-
-      if (move.playerId == 1) {
-        p1Score += points;
-      } else {
-        p2Score += points;
-      }
-
+      // Multi-direction bonus: n directions = n*(n+1)/2
       if (sequences.isNotEmpty) {
+        final directions = sequences.map((s) => s.direction).toSet();
+        final n = directions.length;
+        final points = n * (n + 1) ~/ 2;
+
+        if (move.playerId == 1) {
+          p1Score += points;
+        } else {
+          p2Score += points;
+        }
+
         final seqCells = <CellPosition>{};
         for (final seq in sequences) {
           seqCells.addAll(seq.cells);
         }
-        // Strike out scored cells during replay too
         newBoard = newBoard.strikeOutCells(seqCells);
-        final adjacent =
-            newBoard.getAdjacentOpponentCells(seqCells, move.playerId);
-        if (adjacent.isNotEmpty) {
-          newBoard = newBoard.flipCells(adjacent, move.cellValue, move.playerId);
-        }
       }
     }
 

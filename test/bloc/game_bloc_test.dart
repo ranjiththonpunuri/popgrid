@@ -9,7 +9,7 @@ import 'package:popgrid/features/game/models/models.dart';
 /// A seeder that returns an empty board (no pre-populated cells) for testing.
 class _EmptyBoardSeeder extends BoardSeeder {
   @override
-  GameBoard generate({int cellCount = 12, int? seed}) => GameBoard.empty();
+  GameBoard generate({int cellCount = 30, int? seed}) => GameBoard.empty();
 }
 
 GameBloc _buildBloc() => GameBloc(boardSeeder: _EmptyBoardSeeder());
@@ -168,7 +168,7 @@ void main() {
       );
 
       blocTest<GameBloc, GameBlocState>(
-        '4-in-a-row scores 3 points',
+        '4-in-a-row scores 1pt per 3-cell sub-sequence (1 direction each)',
         build: _buildBloc,
         act: (bloc) {
           bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
@@ -184,9 +184,10 @@ void main() {
         },
         verify: (bloc) {
           final state = bloc.state as GameInProgress;
-          // 3-in-a-row at (0,2) = 1pt, then extending to 4-in-a-row at (0,3) = 3pts
-          // Total: 1 + 3 = 4pts
-          expect(state.gameState.player1Score, 4);
+          // At (0,2): 1 direction (horizontal) = 1pt
+          // At (0,3): 1 direction (horizontal, sub-sequence (0,1)-(0,3)) = 1pt
+          // Total: 1 + 1 = 2pts
+          expect(state.gameState.player1Score, 2);
         },
       );
 
@@ -607,7 +608,7 @@ void main() {
       );
 
       blocTest<GameBloc, GameBlocState>(
-        'remote move triggers sequence and flip correctly',
+        'remote move triggers sequence scoring correctly',
         build: _buildBloc,
         act: (bloc) {
           bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));

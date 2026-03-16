@@ -14,13 +14,11 @@ class Sequence extends Equatable {
   CellPosition get firstCell => cells.first;
   CellPosition get lastCell => cells.last;
 
-  /// Scoring: 3=1pt, 4=3pts, 5=6pts, 6+=6+4*(n-5)
+  /// Each 3-cell sequence is worth 1 point base.
+  /// Multi-direction bonus is calculated in GameBloc.
   int get score {
     if (length < 3) return 0;
-    if (length == 3) return 1;
-    if (length == 4) return 3;
-    if (length == 5) return 6;
-    return 6 + 4 * (length - 5);
+    return 1;
   }
 
   @override

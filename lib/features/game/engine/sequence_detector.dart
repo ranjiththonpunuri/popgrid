@@ -9,9 +9,10 @@ class SequenceDetector {
     (1, -1, SequenceDirection.diagonalDownLeft),
   ];
 
-  /// Detects sequences of 3+ same-letter cells through [lastMove].
-  /// For each direction, finds the maximal consecutive run of the same
-  /// letter passing through the placed cell.
+  /// Detects exact 3-cell sequences through [lastMove].
+  /// For each direction, finds the maximal consecutive run and splits
+  /// it into overlapping 3-cell sub-sequences.
+  /// E.g. 4 in a row → two 3-sequences, 5 in a row → three 3-sequences.
   List<Sequence> detectSequences(GameBoard board, CellPosition lastMove) {
     final cellValue = board.valueAt(lastMove.row, lastMove.col);
     if (cellValue == CellValue.empty) return [];
@@ -28,7 +29,7 @@ class SequenceDetector {
         startCol -= dCol;
       }
 
-      // Extend forward to find full length
+      // Extend forward to find full run
       final cells = <CellPosition>[];
       int r = startRow, c = startCol;
       while (_inBounds(r, c) && board.valueAt(r, c) == cellValue) {
@@ -37,8 +38,14 @@ class SequenceDetector {
         c += dCol;
       }
 
+      // Split into overlapping 3-cell sub-sequences
       if (cells.length >= 3) {
-        sequences.add(Sequence(cells: cells, direction: direction));
+        for (int i = 0; i <= cells.length - 3; i++) {
+          sequences.add(Sequence(
+            cells: cells.sublist(i, i + 3),
+            direction: direction,
+          ));
+        }
       }
     }
 

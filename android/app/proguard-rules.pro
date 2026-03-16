@@ -10,6 +10,16 @@
 -keep class com.google.android.gms.** { *; }
 -dontwarn com.google.android.gms.**
 
+# flutter_nearby_connections plugin
+-keep class com.nankai.flutter_nearby_connections.** { *; }
+-dontwarn com.nankai.flutter_nearby_connections.**
+
+# Gson (used by flutter_nearby_connections)
+-keep class com.google.gson.** { *; }
+-dontwarn com.google.gson.**
+-keepattributes Signature
+-keepattributes *Annotation*
+
 # Play Core (deferred components - not used but referenced by Flutter engine)
 -dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
 -dontwarn com.google.android.play.core.splitinstall.SplitInstallException

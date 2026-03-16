@@ -9,110 +9,100 @@ class BoardSeeder {
   BoardSeeder({SequenceDetector? detector})
       : _detector = detector ?? SequenceDetector();
 
-  /// Generates a pre-populated board with [cellCount] cells (default 12).
+  /// Generates a pre-populated board with [cellCount] cells (default 30 = 30%).
   /// Uses [seed] for reproducibility (important for online/bluetooth sync).
   /// Guarantees:
   /// - Balanced X/O ratio (roughly equal)
   /// - No pre-existing 3+ sequences
-  /// - Spread across all 4 quadrants (at least 2 per quadrant)
+  /// - No same-letter cells adjacent to each other (8-neighbor check)
+  /// - Spread across all 4 quadrants (at least 5 per quadrant)
   /// - All pre-placed cells have placedBy = 0 (system)
-  GameBoard generate({int cellCount = 12, int? seed}) {
+  GameBoard generate({int cellCount = 30, int? seed}) {
     final random = seed != null ? Random(seed) : Random();
     final gridSize = AppConstants.gridSize;
-    final halfCount = cellCount ~/ 2;
 
-    // Build letter list: balanced X and O
-    final letters = <CellValue>[
-      ...List.filled(halfCount, CellValue.X),
-      ...List.filled(cellCount - halfCount, CellValue.O),
-    ];
-    letters.shuffle(random);
-
-    // Quadrant boundaries (0-4, 5-9 for each axis)
-    final half = gridSize ~/ 2;
-    final quadrants = <int, List<CellPosition>>{
-      0: [],
-      1: [],
-      2: [],
-      3: [],
-    };
-
-    // Generate all positions grouped by quadrant
-    final allPositions = <int, List<CellPosition>>{};
-    for (int q = 0; q < 4; q++) {
-      allPositions[q] = [];
-    }
+    // Shuffle all grid positions
+    final allPositions = <CellPosition>[];
     for (int r = 0; r < gridSize; r++) {
       for (int c = 0; c < gridSize; c++) {
-        final q = (r < half ? 0 : 2) + (c < half ? 0 : 1);
-        allPositions[q]!.add(CellPosition(row: r, col: c));
+        allPositions.add(CellPosition(row: r, col: c));
       }
     }
-    for (final positions in allPositions.values) {
-      positions.shuffle(random);
-    }
+    allPositions.shuffle(random);
 
-    // Distribute: at least 2 per quadrant, rest randomly
-    const minPerQuadrant = 2;
-    final placements = <CellPosition>[];
+    // Place cells one by one, checking constraints
+    var board = GameBoard.empty();
+    int placed = 0;
+    int xCount = 0;
+    int oCount = 0;
+    final halfCount = cellCount ~/ 2;
 
-    for (int q = 0; q < 4; q++) {
-      int placed = 0;
-      for (final pos in allPositions[q]!) {
-        if (placed >= minPerQuadrant) break;
-        placements.add(pos);
-        placed++;
+    for (final pos in allPositions) {
+      if (placed >= cellCount) break;
+
+      // Choose letter: try to keep balanced
+      CellValue letter;
+      if (xCount >= halfCount) {
+        letter = CellValue.O;
+      } else if (oCount >= cellCount - halfCount) {
+        letter = CellValue.X;
+      } else {
+        letter = random.nextBool() ? CellValue.X : CellValue.O;
       }
-      quadrants[q] = placements.sublist(placements.length - placed);
-    }
 
-    final remaining = cellCount - placements.length;
-    final allRemaining = <CellPosition>[];
-    for (int q = 0; q < 4; q++) {
-      final used = quadrants[q]!.toSet();
-      for (final pos in allPositions[q]!) {
-        if (!used.contains(pos)) {
-          allRemaining.add(pos);
+      // Check adjacency constraint: no same letter in 8 neighbors
+      if (_hasAdjacentSameLetter(board, pos, letter)) {
+        // Try the other letter
+        final otherLetter =
+            letter == CellValue.X ? CellValue.O : CellValue.X;
+        if (_hasAdjacentSameLetter(board, pos, otherLetter)) {
+          continue; // Skip this position entirely
         }
+        letter = otherLetter;
+      }
+
+      // Place and check for sequences
+      final testBoard = board.placeCell(pos, letter, 0);
+      if (_detector.wouldCreateSequence(testBoard, pos)) {
+        continue; // Skip — would create a sequence
+      }
+
+      board = testBoard;
+      placed++;
+      if (letter == CellValue.X) {
+        xCount++;
+      } else {
+        oCount++;
       }
     }
-    allRemaining.shuffle(random);
-    placements.addAll(allRemaining.take(remaining));
 
-    return _placeWithoutSequences(placements, letters, random);
+    return board;
   }
 
-  GameBoard _placeWithoutSequences(
-    List<CellPosition> positions,
-    List<CellValue> letters,
-    Random random,
+  /// Returns true if any 8-neighbor of [pos] has the same [letter].
+  bool _hasAdjacentSameLetter(
+    GameBoard board,
+    CellPosition pos,
+    CellValue letter,
   ) {
-    for (int attempt = 0; attempt < 50; attempt++) {
-      var board = GameBoard.empty();
-      bool hasSequence = false;
+    const deltas = [
+      (-1, -1), (-1, 0), (-1, 1),
+      (0, -1),           (0, 1),
+      (1, -1),  (1, 0),  (1, 1),
+    ];
 
-      for (int i = 0; i < positions.length; i++) {
-        board = board.placeCell(positions[i], letters[i], 0);
-
-        if (_detector.wouldCreateSequence(board, positions[i])) {
-          hasSequence = true;
-          break;
+    for (final (dr, dc) in deltas) {
+      final nr = pos.row + dr;
+      final nc = pos.col + dc;
+      if (nr >= 0 &&
+          nr < AppConstants.gridSize &&
+          nc >= 0 &&
+          nc < AppConstants.gridSize) {
+        if (board.valueAt(nr, nc) == letter) {
+          return true;
         }
       }
-
-      if (!hasSequence) return board;
-
-      letters.shuffle(random);
     }
-
-    // Fallback: place cells one by one, skipping any that create sequences
-    var board = GameBoard.empty();
-    for (int i = 0; i < positions.length; i++) {
-      final testBoard = board.placeCell(positions[i], letters[i], 0);
-      if (!_detector.wouldCreateSequence(testBoard, positions[i])) {
-        board = testBoard;
-      }
-    }
-    return board;
+    return false;
   }
 }

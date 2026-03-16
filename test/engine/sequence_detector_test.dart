@@ -66,28 +66,27 @@ void main() {
       expect(seqs[0].direction, SequenceDirection.diagonalDownLeft);
     });
 
-    test('detects 4-in-a-row with score 3', () {
+    test('4-in-a-row splits into two 3-cell sub-sequences', () {
       var board = GameBoard.empty();
       for (int c = 0; c < 4; c++) {
         board = board.placeCell(CellPosition(row: 0, col: c), CellValue.X, 1);
       }
 
       final seqs = detector.detectSequences(board, const CellPosition(row: 0, col: 3));
-      expect(seqs.length, 1);
-      expect(seqs[0].length, 4);
-      expect(seqs[0].score, 3);
+      expect(seqs.length, 2);
+      expect(seqs.every((s) => s.length == 3), isTrue);
+      expect(seqs.every((s) => s.direction == SequenceDirection.horizontal), isTrue);
     });
 
-    test('detects 5-in-a-row with score 6', () {
+    test('5-in-a-row splits into three 3-cell sub-sequences', () {
       var board = GameBoard.empty();
       for (int c = 0; c < 5; c++) {
         board = board.placeCell(CellPosition(row: 0, col: c), CellValue.X, 1);
       }
 
       final seqs = detector.detectSequences(board, const CellPosition(row: 0, col: 4));
-      expect(seqs.length, 1);
-      expect(seqs[0].length, 5);
-      expect(seqs[0].score, 6);
+      expect(seqs.length, 3);
+      expect(seqs.every((s) => s.length == 3), isTrue);
     });
 
     test('detects sequence when placed in the middle', () {
@@ -193,8 +192,8 @@ void main() {
       expect(seq.length, 3);
     });
 
-    test('score for length 4 is 3', () {
-      const seq = Sequence(
+    test('score is always 1 for any length >= 3 (bonus calculated in GameBloc)', () {
+      const seq4 = Sequence(
         cells: [
           CellPosition(row: 0, col: 0),
           CellPosition(row: 0, col: 1),
@@ -203,11 +202,9 @@ void main() {
         ],
         direction: SequenceDirection.horizontal,
       );
-      expect(seq.score, 3);
-    });
+      expect(seq4.score, 1);
 
-    test('score for length 5 is 6', () {
-      const seq = Sequence(
+      const seq5 = Sequence(
         cells: [
           CellPosition(row: 0, col: 0),
           CellPosition(row: 0, col: 1),
@@ -217,22 +214,7 @@ void main() {
         ],
         direction: SequenceDirection.horizontal,
       );
-      expect(seq.score, 6);
-    });
-
-    test('score for length 6 is 10', () {
-      const seq = Sequence(
-        cells: [
-          CellPosition(row: 0, col: 0),
-          CellPosition(row: 0, col: 1),
-          CellPosition(row: 0, col: 2),
-          CellPosition(row: 0, col: 3),
-          CellPosition(row: 0, col: 4),
-          CellPosition(row: 0, col: 5),
-        ],
-        direction: SequenceDirection.horizontal,
-      );
-      expect(seq.score, 10);
+      expect(seq5.score, 1);
     });
 
     test('score for length 2 is 0', () {

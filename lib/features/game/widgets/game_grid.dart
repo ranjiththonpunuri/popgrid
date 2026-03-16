@@ -94,8 +94,11 @@ class GameGrid extends StatelessWidget {
   Set<CellPosition> _buildSequenceCellSet(GameMove? lastMove) {
     if (lastMove == null) return {};
     final cells = <CellPosition>{};
+    // Only highlight sequences that contain the just-placed cell
     for (final seq in lastMove.sequencesScored) {
-      cells.addAll(seq.cells);
+      if (seq.cells.contains(lastMove.position)) {
+        cells.addAll(seq.cells);
+      }
     }
     return cells;
   }
