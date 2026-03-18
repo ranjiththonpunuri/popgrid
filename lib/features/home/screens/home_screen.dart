@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:get_it/get_it.dart';
 import 'package:popgrid/core/constants/app_constants.dart';
+import 'package:popgrid/core/services/ad_service.dart';
 import 'package:popgrid/core/theme/app_colors.dart';
 import 'package:popgrid/features/bluetooth/screens/bluetooth_lobby_screen.dart';
 import 'package:popgrid/features/home/widgets/mode_button.dart';
 import 'package:popgrid/features/home/widgets/how_to_play_sheet.dart';
+import 'package:popgrid/features/online/screens/online_lobby_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -101,16 +104,16 @@ class _HomeScreenState extends State<HomeScreen>
                 label: 'Quick Match',
                 icon: Icons.flash_on,
                 color: AppColors.neonYellow,
-                enabled: false,
-                onTap: () => _showComingSoon(context, 'Quick Match'),
+                enabled: true,
+                onTap: () => _navigateToOnlineLobby(context, quickMatch: true),
               ),
               const SizedBox(height: 16),
               ModeButton(
                 label: 'Online',
                 icon: Icons.public,
                 color: AppColors.neonPurple,
-                enabled: false,
-                onTap: () => _showComingSoon(context, 'Online'),
+                enabled: true,
+                onTap: () => _navigateToOnlineLobby(context),
               ),
               const Spacer(),
               // How to Play
@@ -133,7 +136,10 @@ class _HomeScreenState extends State<HomeScreen>
                       color: AppColors.disabledText,
                     ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 8),
+              // Banner ad
+              BannerAdWidget(adService: GetIt.I<AdService>()),
+              const SizedBox(height: 8),
             ],
           ),
         ),
@@ -143,6 +149,12 @@ class _HomeScreenState extends State<HomeScreen>
 
   void _navigateToBluetoothLobby(BuildContext context) {
     Navigator.of(context).push(_buildSlideRoute(const BluetoothLobbyScreen()));
+  }
+
+  void _navigateToOnlineLobby(BuildContext context,
+      {bool quickMatch = false}) {
+    Navigator.of(context).push(
+        _buildSlideRoute(OnlineLobbyScreen(quickMatch: quickMatch)));
   }
 
   void _showComingSoon(BuildContext context, String mode) {

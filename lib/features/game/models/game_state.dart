@@ -13,6 +13,7 @@ class GameState extends Equatable {
   final int currentTurn; // 1 or 2
   final GameStatus status;
   final List<GameMove> moveHistory;
+  final int freeUndosRemaining;
 
   const GameState({
     required this.board,
@@ -21,6 +22,7 @@ class GameState extends Equatable {
     this.currentTurn = 1,
     this.status = GameStatus.waiting,
     this.moveHistory = const [],
+    this.freeUndosRemaining = 1,
   });
 
   factory GameState.newGame({
@@ -74,6 +76,7 @@ class GameState extends Equatable {
     int? currentTurn,
     GameStatus? status,
     List<GameMove>? moveHistory,
+    int? freeUndosRemaining,
   }) {
     return GameState(
       board: board ?? this.board,
@@ -82,10 +85,11 @@ class GameState extends Equatable {
       currentTurn: currentTurn ?? this.currentTurn,
       status: status ?? this.status,
       moveHistory: moveHistory ?? this.moveHistory,
+      freeUndosRemaining: freeUndosRemaining ?? this.freeUndosRemaining,
     );
   }
 
   @override
   List<Object?> get props =>
-      [board, player1, player2, currentTurn, status, moveHistory];
+      [board, player1, player2, currentTurn, status, moveHistory, freeUndosRemaining];
 }

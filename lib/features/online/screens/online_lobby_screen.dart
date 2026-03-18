@@ -1,58 +1,68 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_nearby_connections/flutter_nearby_connections.dart';
 import 'package:get_it/get_it.dart';
 import 'package:popgrid/core/services/ad_service.dart';
+import 'package:popgrid/core/services/auth_service.dart';
 import 'package:popgrid/core/theme/app_colors.dart';
-import 'package:popgrid/features/bluetooth/bloc/bluetooth_bloc.dart';
-import 'package:popgrid/features/bluetooth/bloc/bluetooth_event.dart';
-import 'package:popgrid/features/bluetooth/bloc/bluetooth_state.dart';
-import 'package:popgrid/features/bluetooth/services/bluetooth_game_controller.dart';
-import 'package:popgrid/features/bluetooth/services/permission_service.dart';
 import 'package:popgrid/features/game/bloc/game_bloc.dart';
 import 'package:popgrid/features/game/bloc/game_event.dart';
 import 'package:popgrid/features/game/screens/game_screen.dart';
-import 'package:popgrid/features/home/widgets/player_name_dialog.dart';
+import 'package:popgrid/features/online/bloc/online_lobby_bloc.dart';
+import 'package:popgrid/features/online/bloc/online_lobby_event.dart';
+import 'package:popgrid/features/online/bloc/online_lobby_state.dart';
+import 'package:popgrid/features/online/services/online_game_controller.dart';
+import 'package:popgrid/features/online/services/online_game_service.dart';
 
-class BluetoothLobbyScreen extends StatefulWidget {
-  const BluetoothLobbyScreen({super.key});
+class OnlineLobbyScreen extends StatefulWidget {
+  /// If true, auto-start quick match on open.
+  final bool quickMatch;
+
+  const OnlineLobbyScreen({super.key, this.quickMatch = false});
 
   @override
-  State<BluetoothLobbyScreen> createState() => _BluetoothLobbyScreenState();
+  State<OnlineLobbyScreen> createState() => _OnlineLobbyScreenState();
 }
 
-class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
+class _OnlineLobbyScreenState extends State<OnlineLobbyScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   final _nameController = TextEditingController(text: 'Player');
+  final _codeController = TextEditingController();
   bool _hasNavigated = false;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 3,
+      vsync: this,
+      initialIndex: widget.quickMatch ? 0 : 1,
+    );
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     _nameController.dispose();
+    _codeController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return BlocProvider(
-      create: (_) => BluetoothBloc(),
+      create: (_) => OnlineLobbyBloc(
+        onlineService: GetIt.I<OnlineGameService>(),
+        authService: GetIt.I<AuthService>(),
+      ),
       child: Builder(
-        builder: (context) => BlocListener<BluetoothBloc, BluetoothState>(
+        builder: (context) => BlocListener<OnlineLobbyBloc, OnlineLobbyState>(
           listener: (context, state) {
-            if (state is BluetoothConnected &&
-                state.boardSeed != null &&
-                !_hasNavigated) {
+            if (state is OnlineMatched && !_hasNavigated) {
               _hasNavigated = true;
               _navigateToGame(context, state);
-            } else if (state is BluetoothError) {
+            } else if (state is OnlineLobbyError) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -86,31 +96,25 @@ class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
                                 color: AppColors.textSecondary, size: 20),
                             onPressed: () {
                               context
-                                  .read<BluetoothBloc>()
-                                  .add(const DisconnectRequested());
+                                  .read<OnlineLobbyBloc>()
+                                  .add(const LeaveOnlineLobby());
                               Navigator.of(context).pop();
                             },
                           ),
                           Expanded(
                             child: Text(
-                              'Bluetooth',
+                              'Online',
                               style: Theme.of(context)
                                   .textTheme
                                   .headlineMedium
                                   ?.copyWith(
-                                    color: AppColors.player1,
+                                    color: AppColors.neonPurple,
                                     fontSize: 14,
                                   ),
                               textAlign: TextAlign.center,
                             ),
                           ),
-                          // Local match button
-                          IconButton(
-                            icon: const Icon(Icons.people_outline,
-                                color: AppColors.textSecondary, size: 20),
-                            onPressed: () => _startLocalGame(context),
-                            tooltip: 'Local Match',
-                          ),
+                          const SizedBox(width: 48), // Balance the back button
                         ],
                       ),
                     ),
@@ -124,23 +128,24 @@ class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
                       child: TabBar(
                         controller: _tabController,
                         indicator: BoxDecoration(
-                          color: AppColors.player1.withValues(alpha: 0.15),
+                          color: AppColors.neonPurple.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: AppColors.player1.withValues(alpha: 0.4),
+                            color: AppColors.neonPurple.withValues(alpha: 0.4),
                           ),
                         ),
                         indicatorSize: TabBarIndicatorSize.tab,
                         dividerColor: Colors.transparent,
-                        labelColor: AppColors.player1,
+                        labelColor: AppColors.neonPurple,
                         unselectedLabelColor: AppColors.textSecondary,
                         labelStyle:
                             Theme.of(context).textTheme.labelLarge?.copyWith(
-                                  fontSize: 10,
+                                  fontSize: 9,
                                 ),
                         tabs: const [
-                          Tab(text: 'Host Game'),
-                          Tab(text: 'Join Game'),
+                          Tab(text: 'Quick Match'),
+                          Tab(text: 'Create'),
+                          Tab(text: 'Join'),
                         ],
                       ),
                     ),
@@ -150,8 +155,12 @@ class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
                       child: TabBarView(
                         controller: _tabController,
                         children: [
-                          _HostTab(nameController: _nameController),
-                          _JoinTab(nameController: _nameController),
+                          _QuickMatchTab(nameController: _nameController),
+                          _CreateTab(nameController: _nameController),
+                          _JoinTab(
+                            nameController: _nameController,
+                            codeController: _codeController,
+                          ),
                         ],
                       ),
                     ),
@@ -165,21 +174,24 @@ class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
     );
   }
 
-  void _navigateToGame(BuildContext context, BluetoothConnected state) {
-    final btBloc = context.read<BluetoothBloc>();
+  void _navigateToGame(BuildContext context, OnlineMatched state) {
+    final onlineService = GetIt.I<OnlineGameService>();
+    final authService = GetIt.I<AuthService>();
+    final bloc = context.read<OnlineLobbyBloc>();
     final gameBloc = GameBloc();
     final localPlayerId = state.isHost ? 1 : 2;
 
-    final controller = BluetoothGameController(
-      btService: btBloc.btService,
+    final controller = OnlineGameController(
+      onlineService: onlineService,
+      authService: authService,
       gameBloc: gameBloc,
       localPlayerId: localPlayerId,
+      gameId: state.gameId,
     );
 
-    final hostName =
-        state.isHost ? btBloc.localPlayerName : state.opponentName;
+    final hostName = state.isHost ? bloc.localPlayerName : state.opponentName;
     final joinerName =
-        state.isHost ? state.opponentName : btBloc.localPlayerName;
+        state.isHost ? state.opponentName : bloc.localPlayerName;
 
     // Start game with synced board seed
     gameBloc.add(StartGame(
@@ -197,7 +209,7 @@ class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
           child: GameScreen(
             player1Name: hostName,
             player2Name: joinerName,
-            bluetoothController: controller,
+            onlineController: controller,
             localPlayerId: localPlayerId,
           ),
         ),
@@ -218,61 +230,24 @@ class _BluetoothLobbyScreenState extends State<BluetoothLobbyScreen>
       ),
     );
   }
-
-  /// Local match flow — same as before (same device, two players).
-  void _startLocalGame(BuildContext context) async {
-    final navigator = Navigator.of(context);
-    final names = await showDialog<({String player1, String player2})>(
-      context: context,
-      builder: (_) => const PlayerNameDialog(),
-    );
-
-    if (names == null) return;
-
-    navigator.push(
-      PageRouteBuilder(
-        pageBuilder: (context, animation, secondaryAnimation) => BlocProvider(
-          create: (_) => GameBloc(),
-          child: GameScreen(
-            player1Name: names.player1,
-            player2Name: names.player2,
-          ),
-        ),
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final offsetAnimation = Tween<Offset>(
-            begin: const Offset(1.0, 0.0),
-            end: Offset.zero,
-          ).animate(CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-          ));
-          return SlideTransition(
-            position: offsetAnimation,
-            child: FadeTransition(opacity: animation, child: child),
-          );
-        },
-        transitionDuration: const Duration(milliseconds: 350),
-      ),
-    );
-  }
 }
 
-// ─── Host Tab ────────────────────────────────────────────────────────────────
+// ─── Quick Match Tab ──────────────────────────────────────────────────────────
 
-class _HostTab extends StatelessWidget {
+class _QuickMatchTab extends StatelessWidget {
   final TextEditingController nameController;
 
-  const _HostTab({required this.nameController});
+  const _QuickMatchTab({required this.nameController});
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<BluetoothBloc, BluetoothState>(
+    return BlocBuilder<OnlineLobbyBloc, OnlineLobbyState>(
       builder: (context, state) {
-        if (state is BluetoothHostWaiting) {
-          return _buildWaiting(context);
+        if (state is OnlineSearching) {
+          return _buildSearching(context);
         }
-        if (state is BluetoothConnected) {
-          return _buildConnected(context);
+        if (state is OnlineMatched) {
+          return _buildMatched(context);
         }
         return _buildSetup(context);
       },
@@ -288,18 +263,18 @@ class _HostTab extends StatelessWidget {
           height: 80,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: AppColors.player1.withValues(alpha: 0.1),
+            color: AppColors.neonYellow.withValues(alpha: 0.1),
             border: Border.all(
-              color: AppColors.player1.withValues(alpha: 0.3),
+              color: AppColors.neonYellow.withValues(alpha: 0.3),
               width: 1.5,
             ),
           ),
-          child: const Icon(Icons.wifi_tethering,
-              color: AppColors.player1, size: 36),
+          child:
+              const Icon(Icons.flash_on, color: AppColors.neonYellow, size: 36),
         ),
         const SizedBox(height: 24),
         Text(
-          'Host a Game',
+          'Quick Match',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.textPrimary,
                 fontSize: 14,
@@ -307,36 +282,40 @@ class _HostTab extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Other players nearby will see your game',
+          'Find a random opponent online',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: 9,
               ),
         ),
         const SizedBox(height: 32),
-        _NameInput(controller: nameController, label: 'Your Name'),
+        _NameInput(controller: nameController, color: AppColors.neonYellow),
         const Spacer(),
         _LobbyButton(
-          label: 'Start Hosting',
-          icon: Icons.wifi_tethering,
-          onTap: () => _startHosting(context),
+          label: 'Find Match',
+          icon: Icons.flash_on,
+          color: AppColors.neonYellow,
+          onTap: () {
+            final name = nameController.text.trim();
+            context.read<OnlineLobbyBloc>().add(
+                  StartQuickMatch(
+                      playerName: name.isEmpty ? 'Player' : name),
+                );
+          },
         ),
         const SizedBox(height: 32),
       ],
     );
   }
 
-  Widget _buildWaiting(BuildContext context) {
+  Widget _buildSearching(BuildContext context) {
     return Column(
       children: [
         const Spacer(flex: 2),
-        const _PulsingIcon(
-          icon: Icons.wifi_tethering,
-          color: AppColors.player1,
-        ),
+        const _PulsingIcon(icon: Icons.flash_on, color: AppColors.neonYellow),
         const SizedBox(height: 24),
         Text(
-          'Waiting for opponent...',
+          'Finding opponent...',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.textPrimary,
                 fontSize: 12,
@@ -344,7 +323,7 @@ class _HostTab extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Make sure the other player is searching nearby',
+          'Searching for available players',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: 8,
@@ -358,7 +337,7 @@ class _HostTab extends StatelessWidget {
           icon: Icons.close,
           color: AppColors.textSecondary,
           onTap: () {
-            context.read<BluetoothBloc>().add(const DisconnectRequested());
+            context.read<OnlineLobbyBloc>().add(const CancelSearch());
           },
         ),
         const SizedBox(height: 32),
@@ -366,14 +345,14 @@ class _HostTab extends StatelessWidget {
     );
   }
 
-  Widget _buildConnected(BuildContext context) {
+  Widget _buildMatched(BuildContext context) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const Icon(Icons.check_circle, color: AppColors.neonGreen, size: 48),
         const SizedBox(height: 16),
         Text(
-          'Connected!',
+          'Match Found!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.neonGreen,
                 fontSize: 14,
@@ -390,37 +369,24 @@ class _HostTab extends StatelessWidget {
       ],
     );
   }
-
-  Future<void> _startHosting(BuildContext context) async {
-    final granted = await PermissionService.requestWithExplanation(context);
-    if (!granted || !context.mounted) return;
-
-    final name = nameController.text.trim();
-    context.read<BluetoothBloc>().add(
-          StartHosting(playerName: name.isEmpty ? 'Host' : name),
-        );
-  }
 }
 
-// ─── Join Tab ────────────────────────────────────────────────────────────────
+// ─── Create Tab ───────────────────────────────────────────────────────────────
 
-class _JoinTab extends StatelessWidget {
+class _CreateTab extends StatelessWidget {
   final TextEditingController nameController;
 
-  const _JoinTab({required this.nameController});
+  const _CreateTab({required this.nameController});
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<BluetoothBloc, BluetoothState>(
+    return BlocBuilder<OnlineLobbyBloc, OnlineLobbyState>(
       builder: (context, state) {
-        if (state is BluetoothJoinSearching) {
-          return _buildSearching(context, state);
+        if (state is OnlineGameCreated) {
+          return _buildWaiting(context, state);
         }
-        if (state is BluetoothConnecting) {
-          return _buildConnecting(context, state);
-        }
-        if (state is BluetoothConnected) {
-          return _buildConnected(context);
+        if (state is OnlineMatched) {
+          return _buildMatched(context);
         }
         return _buildSetup(context);
       },
@@ -436,17 +402,18 @@ class _JoinTab extends StatelessWidget {
           height: 80,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: AppColors.player2.withValues(alpha: 0.1),
+            color: AppColors.neonPurple.withValues(alpha: 0.1),
             border: Border.all(
-              color: AppColors.player2.withValues(alpha: 0.3),
+              color: AppColors.neonPurple.withValues(alpha: 0.3),
               width: 1.5,
             ),
           ),
-          child: const Icon(Icons.search, color: AppColors.player2, size: 36),
+          child: const Icon(Icons.add_circle_outline,
+              color: AppColors.neonPurple, size: 36),
         ),
         const SizedBox(height: 24),
         Text(
-          'Join a Game',
+          'Create Room',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.textPrimary,
                 fontSize: 14,
@@ -454,86 +421,25 @@ class _JoinTab extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'Find nearby hosts to join their game',
+          'Share the code with a friend to play',
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: AppColors.textSecondary,
                 fontSize: 9,
               ),
         ),
         const SizedBox(height: 32),
-        _NameInput(controller: nameController, label: 'Your Name'),
+        _NameInput(controller: nameController, color: AppColors.neonPurple),
         const Spacer(),
         _LobbyButton(
-          label: 'Search Nearby',
-          icon: Icons.search,
-          color: AppColors.player2,
-          onTap: () => _startSearching(context),
-        ),
-        const SizedBox(height: 32),
-      ],
-    );
-  }
-
-  Widget _buildSearching(BuildContext context, BluetoothJoinSearching state) {
-    return Column(
-      children: [
-        const SizedBox(height: 16),
-        if (state.discoveredHosts.isEmpty) ...[
-          const Spacer(),
-          const _PulsingIcon(icon: Icons.search, color: AppColors.player2),
-          const SizedBox(height: 24),
-          Text(
-            'Searching for hosts...',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: AppColors.textPrimary,
-                  fontSize: 12,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Make sure the host has started hosting',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                  fontSize: 8,
-                ),
-          ),
-          const Spacer(),
-          BannerAdWidget(adService: GetIt.I<AdService>()),
-          const SizedBox(height: 12),
-        ] else ...[
-          Text(
-            'Nearby Hosts',
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                  color: AppColors.textPrimary,
-                  fontSize: 12,
-                ),
-          ),
-          const SizedBox(height: 16),
-          Expanded(
-            child: ListView.separated(
-              itemCount: state.discoveredHosts.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                final device = state.discoveredHosts[index];
-                return _HostTile(
-                  device: device,
-                  onTap: () {
-                    context.read<BluetoothBloc>().add(ConnectToHost(
-                          deviceId: device.deviceId,
-                          deviceName: device.deviceName,
-                        ));
-                  },
-                );
-              },
-            ),
-          ),
-        ],
-        _LobbyButton(
-          label: 'Cancel',
-          icon: Icons.close,
-          color: AppColors.textSecondary,
+          label: 'Create Room',
+          icon: Icons.add_circle_outline,
+          color: AppColors.neonPurple,
           onTap: () {
-            context.read<BluetoothBloc>().add(const StopSearching());
+            final name = nameController.text.trim();
+            context.read<OnlineLobbyBloc>().add(
+                  CreateOnlineGame(
+                      playerName: name.isEmpty ? 'Player' : name),
+                );
           },
         ),
         const SizedBox(height: 32),
@@ -541,32 +447,101 @@ class _JoinTab extends StatelessWidget {
     );
   }
 
-  Widget _buildConnecting(BuildContext context, BluetoothConnecting state) {
+  Widget _buildWaiting(BuildContext context, OnlineGameCreated state) {
     return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
       children: [
+        const Spacer(flex: 2),
         const _PulsingIcon(
-            icon: Icons.bluetooth_connected, color: AppColors.player1),
+            icon: Icons.wifi_tethering, color: AppColors.neonPurple),
         const SizedBox(height: 24),
         Text(
-          'Connecting to ${state.deviceName}...',
+          'Waiting for opponent...',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.textPrimary,
                 fontSize: 12,
               ),
         ),
+        const SizedBox(height: 16),
+        Text(
+          'Share this code:',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 9,
+              ),
+        ),
+        const SizedBox(height: 8),
+        GestureDetector(
+          onTap: () {
+            Clipboard.setData(ClipboardData(text: state.gameCode));
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  'Code copied!',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontSize: 9,
+                        color: AppColors.textPrimary,
+                      ),
+                ),
+                backgroundColor: AppColors.surfaceLight,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                duration: const Duration(seconds: 1),
+              ),
+            );
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            decoration: BoxDecoration(
+              color: AppColors.neonPurple.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppColors.neonPurple.withValues(alpha: 0.4),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  state.gameCode,
+                  style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+                        color: AppColors.neonPurple,
+                        fontSize: 28,
+                        letterSpacing: 8,
+                      ),
+                ),
+                const SizedBox(width: 12),
+                Icon(Icons.copy,
+                    color: AppColors.neonPurple.withValues(alpha: 0.6),
+                    size: 18),
+              ],
+            ),
+          ),
+        ),
+        const Spacer(flex: 2),
+        BannerAdWidget(adService: GetIt.I<AdService>()),
+        const SizedBox(height: 12),
+        _LobbyButton(
+          label: 'Cancel',
+          icon: Icons.close,
+          color: AppColors.textSecondary,
+          onTap: () {
+            context.read<OnlineLobbyBloc>().add(const CancelSearch());
+          },
+        ),
+        const SizedBox(height: 32),
       ],
     );
   }
 
-  Widget _buildConnected(BuildContext context) {
+  Widget _buildMatched(BuildContext context) {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         const Icon(Icons.check_circle, color: AppColors.neonGreen, size: 48),
         const SizedBox(height: 16),
         Text(
-          'Connected!',
+          'Opponent Joined!',
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                 color: AppColors.neonGreen,
                 fontSize: 14,
@@ -583,15 +558,184 @@ class _JoinTab extends StatelessWidget {
       ],
     );
   }
+}
 
-  Future<void> _startSearching(BuildContext context) async {
-    final granted = await PermissionService.requestWithExplanation(context);
-    if (!granted || !context.mounted) return;
+// ─── Join Tab ─────────────────────────────────────────────────────────────────
 
-    final name = nameController.text.trim();
-    context.read<BluetoothBloc>().add(
-          StartSearching(playerName: name.isEmpty ? 'Player' : name),
-        );
+class _JoinTab extends StatelessWidget {
+  final TextEditingController nameController;
+  final TextEditingController codeController;
+
+  const _JoinTab({
+    required this.nameController,
+    required this.codeController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<OnlineLobbyBloc, OnlineLobbyState>(
+      builder: (context, state) {
+        if (state is OnlineJoining) {
+          return _buildJoining(context);
+        }
+        if (state is OnlineMatched) {
+          return _buildMatched(context);
+        }
+        return _buildSetup(context);
+      },
+    );
+  }
+
+  Widget _buildSetup(BuildContext context) {
+    return Column(
+      children: [
+        const Spacer(),
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: AppColors.neonGreen.withValues(alpha: 0.1),
+            border: Border.all(
+              color: AppColors.neonGreen.withValues(alpha: 0.3),
+              width: 1.5,
+            ),
+          ),
+          child: const Icon(Icons.login, color: AppColors.neonGreen, size: 36),
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Join Room',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Enter the room code from your friend',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 9,
+              ),
+        ),
+        const SizedBox(height: 32),
+        _NameInput(controller: nameController, color: AppColors.neonGreen),
+        const SizedBox(height: 16),
+        // Code input
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: TextField(
+            controller: codeController,
+            maxLength: 4,
+            textAlign: TextAlign.center,
+            textCapitalization: TextCapitalization.characters,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                  fontSize: 20,
+                  color: AppColors.textPrimary,
+                  letterSpacing: 8,
+                ),
+            decoration: InputDecoration(
+              labelText: 'Room Code',
+              labelStyle:
+                  const TextStyle(color: AppColors.neonGreen, fontSize: 10),
+              counterText: '',
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                    color: AppColors.neonGreen.withValues(alpha: 0.3)),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide:
+                    const BorderSide(color: AppColors.neonGreen, width: 1.5),
+              ),
+              filled: true,
+              fillColor: AppColors.surfaceLight,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            ),
+          ),
+        ),
+        const Spacer(),
+        _LobbyButton(
+          label: 'Join Room',
+          icon: Icons.login,
+          color: AppColors.neonGreen,
+          onTap: () {
+            final name = nameController.text.trim();
+            final code = codeController.text.trim().toUpperCase();
+            if (code.length != 4) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Please enter a 4-character room code',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontSize: 9,
+                          color: AppColors.textPrimary,
+                        ),
+                  ),
+                  backgroundColor: AppColors.surfaceLight,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12)),
+                ),
+              );
+              return;
+            }
+            context.read<OnlineLobbyBloc>().add(
+                  JoinOnlineGameByCode(
+                    code: code,
+                    playerName: name.isEmpty ? 'Player' : name,
+                  ),
+                );
+          },
+        ),
+        const SizedBox(height: 32),
+      ],
+    );
+  }
+
+  Widget _buildJoining(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const _PulsingIcon(icon: Icons.login, color: AppColors.neonGreen),
+        const SizedBox(height: 24),
+        Text(
+          'Joining game...',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: AppColors.textPrimary,
+                fontSize: 12,
+              ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildMatched(BuildContext context) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        const Icon(Icons.check_circle, color: AppColors.neonGreen, size: 48),
+        const SizedBox(height: 16),
+        Text(
+          'Joined!',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: AppColors.neonGreen,
+                fontSize: 14,
+              ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Starting game...',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 9,
+              ),
+        ),
+      ],
+    );
   }
 }
 
@@ -599,9 +743,9 @@ class _JoinTab extends StatelessWidget {
 
 class _NameInput extends StatelessWidget {
   final TextEditingController controller;
-  final String label;
+  final Color color;
 
-  const _NameInput({required this.controller, required this.label});
+  const _NameInput({required this.controller, required this.color});
 
   @override
   Widget build(BuildContext context) {
@@ -616,17 +760,16 @@ class _NameInput extends StatelessWidget {
               color: AppColors.textPrimary,
             ),
         decoration: InputDecoration(
-          labelText: label,
-          labelStyle: const TextStyle(color: AppColors.player1, fontSize: 10),
+          labelText: 'Your Name',
+          labelStyle: TextStyle(color: color, fontSize: 10),
           counterText: '',
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide:
-                BorderSide(color: AppColors.player1.withValues(alpha: 0.3)),
+            borderSide: BorderSide(color: color.withValues(alpha: 0.3)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
-            borderSide: const BorderSide(color: AppColors.player1, width: 1.5),
+            borderSide: BorderSide(color: color, width: 1.5),
           ),
           filled: true,
           fillColor: AppColors.surfaceLight,
@@ -647,7 +790,7 @@ class _LobbyButton extends StatelessWidget {
   const _LobbyButton({
     required this.label,
     required this.icon,
-    this.color = AppColors.neonGreen,
+    required this.color,
     required this.onTap,
   });
 
@@ -691,76 +834,6 @@ class _LobbyButton extends StatelessWidget {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _HostTile extends StatelessWidget {
-  final Device device;
-  final VoidCallback onTap;
-
-  const _HostTile({required this.device, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: AppColors.player1.withValues(alpha: 0.3),
-            ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: AppColors.player1.withValues(alpha: 0.1),
-                ),
-                child:
-                    const Icon(Icons.person, color: AppColors.player1, size: 20),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      device.deviceName,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontSize: 10,
-                            color: AppColors.textPrimary,
-                          ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Tap to join',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontSize: 8,
-                            color: AppColors.textSecondary,
-                          ),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(
-                Icons.arrow_forward_ios,
-                color: AppColors.player1.withValues(alpha: 0.5),
-                size: 16,
-              ),
-            ],
           ),
         ),
       ),

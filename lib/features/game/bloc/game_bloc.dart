@@ -20,6 +20,9 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
     on<PlaceCell>(_onPlaceCell);
     on<ApplyRemoteMove>(_onApplyRemoteMove);
     on<UndoMove>(_onUndoMove);
+    on<RequestUndo>(_onRequestUndo);
+    on<GrantPaidUndo>(_onGrantPaidUndo);
+    on<CancelUndo>(_onCancelUndo);
     on<ResetGame>(_onResetGame);
     on<QuitGame>(_onQuitGame);
   }
@@ -149,10 +152,39 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
   }
 
   void _onUndoMove(UndoMove event, Emitter<GameBlocState> emit) {
+    _performUndo(emit);
+  }
+
+  void _onRequestUndo(RequestUndo event, Emitter<GameBlocState> emit) {
     final currentState = state;
     if (currentState is! GameInProgress) return;
 
     final gs = currentState.gameState;
+    if (gs.moveHistory.isEmpty) return;
+
+    if (gs.freeUndosRemaining > 0) {
+      _performUndo(emit, decrementFreeUndo: true);
+    } else {
+      emit(UndoRequiresAd(gs));
+    }
+  }
+
+  void _onGrantPaidUndo(GrantPaidUndo event, Emitter<GameBlocState> emit) {
+    _performUndo(emit, decrementFreeUndo: false);
+  }
+
+  /// Shared undo logic used by [UndoMove], [RequestUndo], and [GrantPaidUndo].
+  void _performUndo(Emitter<GameBlocState> emit, {bool decrementFreeUndo = false}) {
+    final currentState = state;
+    GameState? gs;
+    if (currentState is GameInProgress) {
+      gs = currentState.gameState;
+    } else if (currentState is UndoRequiresAd) {
+      gs = currentState.gameState;
+    } else {
+      return;
+    }
+
     if (gs.moveHistory.isEmpty) return;
 
     final lastMove = gs.moveHistory.last;
@@ -187,15 +219,27 @@ class GameBloc extends Bloc<GameEvent, GameBlocState> {
       }
     }
 
+    final newFreeUndos = decrementFreeUndo
+        ? gs.freeUndosRemaining - 1
+        : gs.freeUndosRemaining;
+
     final newGameState = gs.copyWith(
       board: newBoard,
       player1: gs.player1.copyWith(score: p1Score),
       player2: gs.player2.copyWith(score: p2Score),
       currentTurn: lastMove.playerId,
       moveHistory: previousMoves,
+      freeUndosRemaining: newFreeUndos,
     );
 
     emit(GameInProgress(newGameState));
+  }
+
+  void _onCancelUndo(CancelUndo event, Emitter<GameBlocState> emit) {
+    final currentState = state;
+    if (currentState is UndoRequiresAd) {
+      emit(GameInProgress(currentState.gameState));
+    }
   }
 
   void _onResetGame(ResetGame event, Emitter<GameBlocState> emit) {

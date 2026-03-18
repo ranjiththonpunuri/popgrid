@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "392706745570",
+    "project_id": "popgrid-ranjith-2026",
+    "storage_bucket": "popgrid-ranjith-2026.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:392706745570:android:ce5d3bc5e02655c09c6abb",
+        "android_client_info": {
+          "package_name": "com.ranjith.popgrid"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCslxHBIiMpv-PZ4-xscvXOo76DyC-nODQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

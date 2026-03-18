@@ -49,6 +49,23 @@ class UndoMove extends GameEvent {
   const UndoMove();
 }
 
+/// UI sends this instead of [UndoMove] to check free undo availability.
+/// If free undos remain, performs undo; otherwise emits [UndoRequiresAd].
+class RequestUndo extends GameEvent {
+  const RequestUndo();
+}
+
+/// Dispatched after a rewarded ad is watched (or fallback granted).
+/// Performs undo without decrementing free undo count.
+class GrantPaidUndo extends GameEvent {
+  const GrantPaidUndo();
+}
+
+/// Dismiss the undo ad dialog without undoing.
+class CancelUndo extends GameEvent {
+  const CancelUndo();
+}
+
 class ResetGame extends GameEvent {
   const ResetGame();
 }

@@ -32,3 +32,15 @@ class GameOver extends GameBlocState {
   @override
   List<Object?> get props => [gameState, winner];
 }
+
+/// Transient state emitted when player requests undo but has no free undos left.
+/// The UI should show a "Watch ad to undo?" dialog, then dispatch
+/// [GrantPaidUndo] or cancel.
+class UndoRequiresAd extends GameBlocState {
+  final GameState gameState;
+
+  const UndoRequiresAd(this.gameState);
+
+  @override
+  List<Object?> get props => [gameState];
+}

@@ -640,5 +640,78 @@ void main() {
         },
       );
     });
+
+    group('RequestUndo & GrantPaidUndo', () {
+      blocTest<GameBloc, GameBlocState>(
+        'RequestUndo performs free undo when freeUndosRemaining > 0',
+        build: _buildBloc,
+        act: (bloc) {
+          bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
+          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
+          bloc.add(const RequestUndo());
+        },
+        verify: (bloc) {
+          final state = bloc.state as GameInProgress;
+          // Move was undone — board should be empty, turn back to player 1
+          expect(state.gameState.moveHistory.length, 0);
+          expect(state.gameState.currentTurn, 1);
+          // Free undo used
+          expect(state.gameState.freeUndosRemaining, 0);
+        },
+      );
+
+      blocTest<GameBloc, GameBlocState>(
+        'RequestUndo emits UndoRequiresAd when no free undos remain',
+        build: _buildBloc,
+        act: (bloc) {
+          bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
+          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
+          bloc.add(const RequestUndo()); // uses free undo
+          bloc.add(const PlaceCell(position: CellPosition(row: 1, col: 0)));
+          bloc.add(const RequestUndo()); // no free undos left
+        },
+        verify: (bloc) {
+          expect(bloc.state, isA<UndoRequiresAd>());
+        },
+      );
+
+      blocTest<GameBloc, GameBlocState>(
+        'GrantPaidUndo performs undo without decrementing freeUndosRemaining',
+        build: _buildBloc,
+        act: (bloc) {
+          bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
+          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
+          bloc.add(const RequestUndo()); // uses free undo, now 0
+          bloc.add(const PlaceCell(position: CellPosition(row: 1, col: 0)));
+          bloc.add(const RequestUndo()); // emits UndoRequiresAd
+          bloc.add(const GrantPaidUndo()); // undo via ad
+        },
+        verify: (bloc) {
+          final state = bloc.state as GameInProgress;
+          expect(state.gameState.moveHistory.length, 0);
+          expect(state.gameState.currentTurn, 1);
+          // freeUndosRemaining stays at 0 (not decremented)
+          expect(state.gameState.freeUndosRemaining, 0);
+        },
+      );
+
+      blocTest<GameBloc, GameBlocState>(
+        'CancelUndo returns to GameInProgress',
+        build: _buildBloc,
+        act: (bloc) {
+          bloc.add(const StartGame(player1Name: 'A', player2Name: 'B'));
+          bloc.add(const PlaceCell(position: CellPosition(row: 0, col: 0)));
+          bloc.add(const RequestUndo()); // free undo
+          bloc.add(const PlaceCell(position: CellPosition(row: 1, col: 0)));
+          bloc.add(const RequestUndo()); // UndoRequiresAd
+          bloc.add(const CancelUndo()); // back to GameInProgress
+        },
+        verify: (bloc) {
+          final state = bloc.state as GameInProgress;
+          expect(state.gameState.moveHistory.length, 1);
+          expect(state.gameState.freeUndosRemaining, 0);
+        },
+      );
+    });
   });
 }

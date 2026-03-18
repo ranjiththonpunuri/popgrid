@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
+import 'package:popgrid/core/services/ad_service.dart';
 import 'package:popgrid/core/services/haptic_service.dart';
 import 'package:popgrid/core/services/sound_service.dart';
 import 'package:popgrid/core/theme/app_colors.dart';
@@ -15,11 +17,13 @@ import 'package:popgrid/features/game/widgets/connection_status_indicator.dart';
 import 'package:popgrid/features/game/widgets/game_grid.dart';
 import 'package:popgrid/features/game/widgets/game_over_overlay.dart';
 import 'package:popgrid/features/game/widgets/score_bar.dart';
+import 'package:popgrid/features/online/services/online_game_controller.dart';
 
 class GameScreen extends StatefulWidget {
   final String player1Name;
   final String player2Name;
   final BluetoothGameController? bluetoothController;
+  final OnlineGameController? onlineController;
   final int? localPlayerId; // 1 or 2, null for local games
 
   const GameScreen({
@@ -27,6 +31,7 @@ class GameScreen extends StatefulWidget {
     required this.player1Name,
     required this.player2Name,
     this.bluetoothController,
+    this.onlineController,
     this.localPlayerId,
   });
 
@@ -36,21 +41,28 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> {
   bool _isBluetoothGame = false;
+  bool _isOnlineGame = false;
+  bool get _isMultiplayerGame => _isBluetoothGame || _isOnlineGame;
+
   int _lastKnownMoveCount = 0;
   bool _wasGameOver = false;
 
-  // BT rematch state
+  // Rematch state (shared for BT and Online)
   bool _rematchRequested = false; // We sent a request
   bool _rematchReceived = false; // Opponent sent a request
+
+  // Ad service
+  final AdService _adService = GetIt.I<AdService>();
 
   @override
   void initState() {
     super.initState();
     _isBluetoothGame = widget.bluetoothController != null;
+    _isOnlineGame = widget.onlineController != null;
 
     // Only dispatch StartGame for local games.
-    // For BT games, StartGame is dispatched by the lobby before navigation.
-    if (!_isBluetoothGame) {
+    // For multiplayer games, StartGame is dispatched by the lobby before navigation.
+    if (!_isMultiplayerGame) {
       context.read<GameBloc>().add(StartGame(
             player1Name: widget.player1Name,
             player2Name: widget.player2Name,
@@ -88,17 +100,54 @@ class _GameScreenState extends State<GameScreen> {
         }
       };
     }
+
+    // Set up Online controller callbacks
+    if (_isOnlineGame) {
+      final controller = widget.onlineController!;
+
+      controller.onRemoteMoveApplied = () {
+        HapticService.mediumImpact();
+        SoundService.playOpponentMove();
+      };
+
+      controller.onRematchRequested = () {
+        if (mounted) {
+          setState(() => _rematchReceived = true);
+        }
+      };
+
+      controller.onRematchAccepted = (newGameId, seed) {
+        if (mounted) {
+          controller.resetMoveCount();
+          context.read<GameBloc>().add(StartGame(
+                player1Name: widget.player1Name,
+                player2Name: widget.player2Name,
+                boardSeed: seed,
+              ));
+          setState(() {
+            _rematchRequested = false;
+            _rematchReceived = false;
+            _wasGameOver = false;
+          });
+        }
+      };
+
+      controller.onOpponentDisconnected = () {
+        if (mounted) setState(() {});
+      };
+    }
   }
 
   @override
   void dispose() {
     widget.bluetoothController?.dispose();
+    widget.onlineController?.dispose();
     super.dispose();
   }
 
   bool _canTapGrid(GameState gs, bool isGameOver) {
     if (isGameOver) return false;
-    if (!_isBluetoothGame) return true;
+    if (!_isMultiplayerGame) return true;
     return gs.currentTurn == widget.localPlayerId;
   }
 
@@ -109,6 +158,9 @@ class _GameScreenState extends State<GameScreen> {
         child: BlocConsumer<GameBloc, GameBlocState>(
           listener: (context, state) {
             _handleStateChangeFeedback(state);
+            if (state is UndoRequiresAd) {
+              _showUndoAdDialog(context);
+            }
           },
           builder: (context, state) {
             if (state is GameInitial) {
@@ -126,6 +178,9 @@ class _GameScreenState extends State<GameScreen> {
               gs = state.gameState;
               isGameOver = true;
               winner = state.winner;
+            } else if (state is UndoRequiresAd) {
+              gs = state.gameState;
+              isGameOver = false;
             } else {
               return const SizedBox.shrink();
             }
@@ -160,6 +215,13 @@ class _GameScreenState extends State<GameScreen> {
                                   widget.bluetoothController!.connectionState,
                             ),
                           ],
+                          if (_isOnlineGame) ...[
+                            const SizedBox(width: 8),
+                            _OnlineStatusIndicator(
+                              connectionState:
+                                  widget.onlineController!.connectionState,
+                            ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -191,19 +253,19 @@ class _GameScreenState extends State<GameScreen> {
                   GameOverOverlay(
                     gameState: gs,
                     winner: winner,
-                    isBluetoothGame: _isBluetoothGame,
+                    isMultiplayerGame: _isMultiplayerGame,
                     rematchRequested: _rematchRequested,
                     rematchReceived: _rematchReceived,
                     onRematch: () => _handleRematch(context),
                     onAcceptRematch: () => _handleAcceptRematch(context),
-                    onExit: () {
-                      context.read<GameBloc>().add(const QuitGame());
-                      widget.bluetoothController?.btService.disconnect();
-                      Navigator.of(context).pop();
-                    },
+                    onExit: () => _handleExit(context),
+                    onWatchReplay: () => _handleWatchReplay(context),
+                    isReplayAvailable: _adService.isRewardedReady,
                   ),
                 // Disconnect overlay (BT only)
                 if (_isBluetoothGame) _buildDisconnectOverlayIfNeeded(context),
+                // Disconnect overlay (Online)
+                if (_isOnlineGame) _buildOnlineDisconnectOverlay(context),
               ],
             );
           },
@@ -244,10 +306,24 @@ class _GameScreenState extends State<GameScreen> {
       _wasGameOver = true;
       HapticService.vibrate();
       SoundService.playGameOver();
+      _adService.onGameCompleted();
     }
   }
 
-  void _handleRematch(BuildContext context) {
+  Future<void> _handleExit(BuildContext context) async {
+    if (_adService.shouldShowInterstitial) {
+      await _adService.showInterstitial();
+    }
+    if (!mounted) return;
+    context.read<GameBloc>().add(const QuitGame());
+    widget.bluetoothController?.btService.disconnect();
+    widget.onlineController?.onlineService.leaveGame(
+      widget.onlineController!.gameId,
+    );
+    Navigator.of(context).pop();
+  }
+
+  Future<void> _handleRematch(BuildContext context) async {
     if (_isBluetoothGame) {
       // Send rematch request to opponent
       widget.bluetoothController!.sendRematchRequest();
@@ -257,30 +333,169 @@ class _GameScreenState extends State<GameScreen> {
       if (_rematchReceived) {
         _handleAcceptRematch(context);
       }
+    } else if (_isOnlineGame) {
+      // Send rematch request to opponent via Firestore
+      widget.onlineController!.sendRematchRequest();
+      setState(() => _rematchRequested = true);
+
+      // If opponent already requested, accept immediately
+      if (_rematchReceived) {
+        _handleAcceptRematch(context);
+      }
     } else {
+      if (_adService.shouldShowInterstitial) {
+        await _adService.showInterstitial();
+      }
+      if (!mounted) return;
       context.read<GameBloc>().add(const ResetGame());
       _wasGameOver = false;
     }
   }
 
+  Future<void> _handleWatchReplay(BuildContext context) async {
+    final rewarded = await _adService.showRewarded();
+    if (!mounted) return;
+    if (rewarded) {
+      // Replay feature — show toast for now (replay visualization is a future feature)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Replay feature coming soon!',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontSize: 9,
+                  color: AppColors.textPrimary,
+                ),
+          ),
+          backgroundColor: AppColors.surfaceLight,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  void _showUndoAdDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          'Undo Move',
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                color: AppColors.neonGreen,
+                fontSize: 14,
+              ),
+        ),
+        content: Text(
+          'You\'ve used your free undo.\nWatch a short ad to undo?',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontSize: 10,
+              ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.read<GameBloc>().add(const CancelUndo());
+            },
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                  color: AppColors.textSecondary, fontSize: 10),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              if (_adService.isRewardedReady) {
+                final rewarded = await _adService.showRewarded();
+                if (mounted) {
+                  context.read<GameBloc>().add(const GrantPaidUndo());
+                }
+              } else {
+                // No ad available — grant free as good UX
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'No ad available — undo granted!',
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodyMedium
+                            ?.copyWith(
+                              fontSize: 9,
+                              color: AppColors.textPrimary,
+                            ),
+                      ),
+                      backgroundColor: AppColors.surfaceLight,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      duration: const Duration(seconds: 2),
+                    ),
+                  );
+                  context.read<GameBloc>().add(const GrantPaidUndo());
+                }
+              }
+            },
+            child: Text(
+              _adService.isRewardedReady ? 'Watch Ad' : 'Undo Free',
+              style: TextStyle(
+                  color: AppColors.neonGreen, fontSize: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _handleAcceptRematch(BuildContext context) {
-    if (!_isBluetoothGame) return;
+    if (_isBluetoothGame) {
+      final seed = Random().nextInt(999999);
+      widget.bluetoothController!.sendRematchAccept(seed);
+      widget.bluetoothController!.resetMoveCount();
 
-    final seed = Random().nextInt(999999);
-    widget.bluetoothController!.sendRematchAccept(seed);
-    widget.bluetoothController!.resetMoveCount();
+      context.read<GameBloc>().add(StartGame(
+            player1Name: widget.player1Name,
+            player2Name: widget.player2Name,
+            boardSeed: seed,
+          ));
 
-    context.read<GameBloc>().add(StartGame(
-          player1Name: widget.player1Name,
-          player2Name: widget.player2Name,
-          boardSeed: seed,
-        ));
+      setState(() {
+        _rematchRequested = false;
+        _rematchReceived = false;
+        _wasGameOver = false;
+      });
+    } else if (_isOnlineGame) {
+      final seed = Random().nextInt(999999);
+      final controller = widget.onlineController!;
+      // Accept rematch creates a new game in Firestore
+      // The onRematchAccepted callback will handle starting the new game
+      controller.sendRematchAccept(
+        seed,
+        widget.player1Name,
+        widget.player2Name,
+        controller.authService.sessionId,
+        controller.authService.sessionId, // Will be overridden by Firestore
+      );
+      controller.resetMoveCount();
 
-    setState(() {
-      _rematchRequested = false;
-      _rematchReceived = false;
-      _wasGameOver = false;
-    });
+      context.read<GameBloc>().add(StartGame(
+            player1Name: widget.player1Name,
+            player2Name: widget.player2Name,
+            boardSeed: seed,
+          ));
+
+      setState(() {
+        _rematchRequested = false;
+        _rematchReceived = false;
+        _wasGameOver = false;
+      });
+    }
   }
 
   Widget _buildTurnIndicator(BuildContext context, GameState gs) {
@@ -288,7 +503,7 @@ class _GameScreenState extends State<GameScreen> {
     final letter = gs.currentPlayer.ownedLetter == CellValue.X ? 'X' : 'O';
 
     String text;
-    if (_isBluetoothGame) {
+    if (_isMultiplayerGame) {
       if (gs.currentTurn == widget.localPlayerId) {
         text = 'Your turn — place $letter';
       } else {
@@ -319,15 +534,15 @@ class _GameScreenState extends State<GameScreen> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        if (!_isBluetoothGame)
+        if (!_isMultiplayerGame)
           _SmallActionButton(
             icon: Icons.undo,
             label: 'Undo',
             onTap: () {
-              context.read<GameBloc>().add(const UndoMove());
+              context.read<GameBloc>().add(const RequestUndo());
             },
           ),
-        if (!_isBluetoothGame) const SizedBox(width: 24),
+        if (!_isMultiplayerGame) const SizedBox(width: 24),
         _SmallActionButton(
           icon: Icons.menu,
           label: 'Menu',
@@ -438,7 +653,7 @@ class _GameScreenState extends State<GameScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            if (!_isBluetoothGame)
+            if (!_isMultiplayerGame)
               _MenuOption(
                 icon: Icons.refresh,
                 label: 'Restart',
@@ -447,7 +662,7 @@ class _GameScreenState extends State<GameScreen> {
                   this.context.read<GameBloc>().add(const ResetGame());
                 },
               ),
-            if (!_isBluetoothGame) const SizedBox(height: 8),
+            if (!_isMultiplayerGame) const SizedBox(height: 8),
             _MenuOption(
               icon: Icons.exit_to_app,
               label: 'Quit',
@@ -456,6 +671,11 @@ class _GameScreenState extends State<GameScreen> {
                 Navigator.pop(context); // close sheet
                 this.context.read<GameBloc>().add(const QuitGame());
                 widget.bluetoothController?.btService.disconnect();
+                if (widget.onlineController != null) {
+                  widget.onlineController!.onlineService.leaveGame(
+                    widget.onlineController!.gameId,
+                  );
+                }
                 Navigator.of(this.context).pop(); // go back
               },
             ),
@@ -463,6 +683,86 @@ class _GameScreenState extends State<GameScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Shows disconnect overlay when online opponent disconnects.
+  Widget _buildOnlineDisconnectOverlay(BuildContext context) {
+    return ValueListenableBuilder<OnlineConnectionState>(
+      valueListenable: widget.onlineController!.connectionState,
+      builder: (context, connState, _) {
+        if (connState != OnlineConnectionState.disconnected) {
+          return const SizedBox.shrink();
+        }
+        return Container(
+          color: AppColors.background.withValues(alpha: 0.85),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 32),
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppColors.player2.withValues(alpha: 0.4),
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wifi_off,
+                      color: AppColors.player2, size: 40),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Opponent Disconnected',
+                    style:
+                        Theme.of(context).textTheme.headlineMedium?.copyWith(
+                              color: AppColors.player2,
+                              fontSize: 14,
+                            ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'The online connection was lost.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.textSecondary,
+                          fontSize: 9,
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 24),
+                  GestureDetector(
+                    onTap: () {
+                      context.read<GameBloc>().add(const QuitGame());
+                      Navigator.of(context).pop();
+                    },
+                    child: Container(
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: AppColors.player2.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppColors.player2.withValues(alpha: 0.6),
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        'Return to Lobby',
+                        style:
+                            Theme.of(context).textTheme.labelLarge?.copyWith(
+                                  fontSize: 11,
+                                  color: AppColors.player2,
+                                ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -504,6 +804,61 @@ class _SmallActionButton extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _OnlineStatusIndicator extends StatelessWidget {
+  final ValueNotifier<OnlineConnectionState> connectionState;
+
+  const _OnlineStatusIndicator({required this.connectionState});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<OnlineConnectionState>(
+      valueListenable: connectionState,
+      builder: (context, state, _) {
+        final color = switch (state) {
+          OnlineConnectionState.connected => AppColors.neonGreen,
+          OnlineConnectionState.reconnecting => AppColors.neonYellow,
+          OnlineConnectionState.disconnected => AppColors.player2,
+        };
+
+        final label = switch (state) {
+          OnlineConnectionState.connected => 'Online',
+          OnlineConnectionState.reconnecting => 'Reconnecting...',
+          OnlineConnectionState.disconnected => 'Disconnected',
+        };
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color,
+                boxShadow: [
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.5),
+                    blurRadius: 4,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontSize: 7,
+                    color: color,
+                  ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

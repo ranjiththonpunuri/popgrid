@@ -5,23 +5,27 @@ import 'package:popgrid/features/game/models/models.dart';
 class GameOverOverlay extends StatelessWidget {
   final GameState gameState;
   final Player? winner;
-  final bool isBluetoothGame;
+  final bool isMultiplayerGame;
   final bool rematchRequested;
   final bool rematchReceived;
   final VoidCallback onRematch;
   final VoidCallback? onAcceptRematch;
   final VoidCallback onExit;
+  final VoidCallback? onWatchReplay;
+  final bool isReplayAvailable;
 
   const GameOverOverlay({
     super.key,
     required this.gameState,
     required this.winner,
-    this.isBluetoothGame = false,
+    this.isMultiplayerGame = false,
     this.rematchRequested = false,
     this.rematchReceived = false,
     required this.onRematch,
     this.onAcceptRematch,
     required this.onExit,
+    this.onWatchReplay,
+    this.isReplayAvailable = false,
   });
 
   bool get isDraw => winner == null;
@@ -110,9 +114,63 @@ class GameOverOverlay extends StatelessWidget {
                       color: AppColors.textSecondary,
                     ),
               ),
+              if (onWatchReplay != null) ...[
+                const SizedBox(height: 16),
+                GestureDetector(
+                  onTap: isReplayAvailable ? onWatchReplay : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isReplayAvailable
+                          ? AppColors.neonYellow.withValues(alpha: 0.1)
+                          : AppColors.surfaceLight.withValues(alpha: 0.3),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isReplayAvailable
+                            ? AppColors.neonYellow.withValues(alpha: 0.4)
+                            : AppColors.textSecondary.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.play_circle_outline,
+                          color: isReplayAvailable
+                              ? AppColors.neonYellow
+                              : AppColors.disabledText,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Watch Replay',
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodyMedium
+                              ?.copyWith(
+                                fontSize: 9,
+                                color: isReplayAvailable
+                                    ? AppColors.neonYellow
+                                    : AppColors.disabledText,
+                              ),
+                        ),
+                        const SizedBox(width: 4),
+                        Icon(
+                          Icons.ondemand_video,
+                          color: isReplayAvailable
+                              ? AppColors.neonYellow.withValues(alpha: 0.6)
+                              : AppColors.disabledText.withValues(alpha: 0.4),
+                          size: 14,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               const SizedBox(height: 28),
               // Buttons
-              if (isBluetoothGame && rematchReceived && !rematchRequested)
+              if (isMultiplayerGame && rematchReceived && !rematchRequested)
                 // Opponent wants a rematch — show accept prompt
                 Column(
                   children: [
@@ -161,12 +219,12 @@ class GameOverOverlay extends StatelessWidget {
                     const SizedBox(width: 12),
                     Expanded(
                       child: _ActionButton(
-                        label: isBluetoothGame && rematchRequested
+                        label: isMultiplayerGame && rematchRequested
                             ? 'Requesting...'
                             : 'Rematch',
                         color: AppColors.neonGreen,
                         filled: true,
-                        onTap: isBluetoothGame && rematchRequested
+                        onTap: isMultiplayerGame && rematchRequested
                             ? () {}
                             : onRematch,
                       ),
